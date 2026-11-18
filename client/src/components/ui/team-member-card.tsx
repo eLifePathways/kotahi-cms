@@ -1,0 +1,78 @@
+import { Card, CardContent } from '@/components/ui/card'
+import { Mail, Globe, Link } from 'lucide-react'
+
+type SocialLinkProps = {
+  href: string
+  icon: React.ReactNode
+  label: string
+}
+
+const SocialLink = ({ href, icon, label }: SocialLinkProps) => (
+  <a
+    href={href}
+    aria-label={label}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="text-link hover:underline transition"
+  >
+    {icon}
+  </a>
+)
+
+type TeamMemberCardProps = {
+  name: string
+  title: string
+  institution: string
+  description: string
+  imageUrl: string
+  website?: string
+  socialMedia?: string
+}
+
+const TeamMemberCard = ({
+  name,
+  title,
+  institution,
+  description,
+  imageUrl,
+  website,
+  socialMedia,
+}: TeamMemberCardProps) => {
+  return (
+    <Card className="overflow-hidden border border-border hover:shadow-lg transition duration-300 h-full">
+      <div className="aspect-w-1 aspect-h-1 overflow-hidden h-64">
+        <img
+          src={imageUrl}
+          alt={name}
+          className="w-full h-full object-cover object-center"
+        />
+      </div>
+      <CardContent className="p-6">
+        <h3 className="font-heading font-semibold text-primary text-xl mb-1">
+          {name}
+          {title && `, ${title}`}
+        </h3>
+        <p className="text-muted-foreground text-sm mb-3">{institution}</p>
+        <p className="text-foreground mb-4">{description}</p>
+        <div className="flex gap-3">
+          {website && (
+            <SocialLink
+              href={website}
+              icon={<Globe size={18} />}
+              label={`${name}'s website`}
+            />
+          )}
+          {socialMedia && (
+            <SocialLink
+              href={socialMedia}
+              icon={<Link size={18} />}
+              label={`${name}'s social media profile`}
+            />
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+export default TeamMemberCard

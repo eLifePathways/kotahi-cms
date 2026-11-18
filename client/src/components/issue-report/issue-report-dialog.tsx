@@ -1,0 +1,313 @@
+import { useState, useEffect } from 'react'
+import { z } from 'zod'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation } from '@tanstack/react-query'
+import { Loader2, SendHorizontal, BugIcon, Code, Trash } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
+import { useToast } from '@/hooks/use-toast'
+import { ScreenshotCapture } from './screenshot-capture'
+import { useTRPC } from '@/utils/trpc'
+import { getFormattedErrorLogs } from '@/utils/error-tracking'
+
+const formSchema = z.object({
+  title: z.string().min(5, { message: 'Title must be at least 5 characters' }),
+  description: z
+    .string()
+    .min(10, { message: 'Description must be at least 10 characters' }),
+  email: z
+    .string()
+    .email({ message: 'Invalid email address' })
+    .optional()
+    .or(z.literal('')),
+  screenshotUrl: z.string().optional(),
+  consoleLog: z.string().optional(),
+})
+
+type FormValues = z.infer<typeof formSchema>
+
+interface IssueReportDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function IssueReportDialog({
+  open,
+  onOpenChange,
+}: IssueReportDialogProps) {
+  const [screenshot, setScreenshot] = useState<string | null>(null)
+  const [consoleLog, setConsoleLog] = useState<string | null>(null)
+  const { toast } = useToast()
+  const trpc = useTRPC()
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      title: '',
+      description: '',
+      email: '',
+    },
+  })
+
+  // When dialog opens, capture console logs
+  useEffect(() => {
+    if (open) {
+      // Try to get console logs from browser storage (if they've been saved)
+      try {
+        // Use getFormattedErrorLogs from the error-tracking utility
+        const formattedLogs = getFormattedErrorLogs()
+        if (formattedLogs && formattedLogs !== 'No error logs found') {
+          setConsoleLog(formattedLogs)
+        }
+      } catch (e) {
+        console.error('Error getting formatted logs:', e)
+      }
+    }
+  }, [open])
+
+  // Function to manually capture console logs from browser
+  const captureConsoleErrors = () => {
+    try {
+      // Use the utility to get well-formatted logs
+      const formattedLogs = getFormattedErrorLogs()
+      setConsoleLog(formattedLogs)
+    } catch (e) {
+      console.error('Error capturing console logs:', e)
+
+      // Fallback mechanism if the utility function fails
+      const errorMessages: string[] = []
+
+      // Add browser info
+      errorMessages.push('\n--- Browser Information ---')
+      errorMessages.push(`User Agent: ${navigator.userAgent}`)
+      errorMessages.push(`Platform: ${navigator.platform}`)
+      errorMessages.push(`Cookies Enabled: ${navigator.cookieEnabled}`)
+      errorMessages.push(`Language: ${navigator.language}`)
+
+      // Add page info
+      errorMessages.push('\n--- Page Information ---')
+      errorMessages.push(`URL: ${window.location.href}`)
+      errorMessages.push(`Referrer: ${document.referrer}`)
+      errorMessages.push(`Screen Width: ${window.screen.width}px`)
+      errorMessages.push(`Screen Height: ${window.screen.height}px`)
+      errorMessages.push(`Window Width: ${window.innerWidth}px`)
+      errorMessages.push(`Window Height: ${window.innerHeight}px`)
+
+      // Set the console log state
+      setConsoleLog(errorMessages.join('\n'))
+    }
+  }
+
+  // Reset form when dialog closes
+  useEffect(() => {
+    if (!open) {
+      form.reset()
+      setScreenshot(null)
+      setConsoleLog(null)
+    }
+  }, [open, form])
+
+  const submitMutation = useMutation(
+    trpc.createIssue.mutationOptions({
+      onSuccess: () => {
+        toast({
+          title: 'Issue reported',
+          description:
+            'Thank you for your feedback. Our team will review your report.',
+        })
+        form.reset()
+        setScreenshot(null)
+        setConsoleLog(null)
+        onOpenChange(false)
+      },
+      onError: error => {
+        console.error('Error submitting issue:', error)
+        toast({
+          title: 'Failed to report issue',
+          description:
+            'There was a problem submitting your report. Please try again.',
+          variant: 'destructive',
+        })
+      },
+    }),
+  )
+
+  const onSubmit = async (data: FormValues) => {
+    // Submit the form data with the page and browser details
+    submitMutation.mutate({
+      data: {
+        title: data.title,
+        description: data.description,
+        pageUrl: window.location.href,
+        screenshotUrl: screenshot || undefined,
+        consoleLog: consoleLog || undefined,
+        browserInfo: { userAgent: navigator.userAgent },
+        email: data.email || undefined,
+      },
+    })
+  }
+
+  const handleScreenshotCapture = (dataUrl: string | null) => {
+    setScreenshot(dataUrl)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center">
+            <BugIcon className="h-5 w-5 mr-2" />
+            Report an Issue
+          </DialogTitle>
+          <DialogDescription>
+            Help us improve by reporting any issues you encounter.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <FormField
+              control={form.control}
+              name="title"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Issue Title</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="Brief description of the issue"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Please describe what happened, what you expected, and steps to reproduce..."
+                      className="min-h-[100px]"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email (optional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="email"
+                      placeholder="Your email if you'd like to be contacted"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Screenshot</h3>
+              <ScreenshotCapture onCapture={handleScreenshotCapture} />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-medium">Debug Information</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={captureConsoleErrors}
+                  className="h-7 px-2 text-xs"
+                >
+                  <Code className="h-3 w-3 mr-1" />
+                  Capture System Info
+                </Button>
+              </div>
+
+              {consoleLog && (
+                <div className="relative border rounded-md overflow-hidden bg-muted">
+                  <div className="max-h-[100px] overflow-auto text-xs p-2 font-mono bg-muted">
+                    <pre className="whitespace-pre-wrap break-all">
+                      {consoleLog}
+                    </pre>
+                  </div>
+                  <div className="flex justify-end p-1 bg-muted border-t">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setConsoleLog(null)}
+                    >
+                      <Trash className="h-3 w-3 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {!consoleLog && (
+                <p className="text-xs text-muted-foreground">
+                  Click "Capture System Info" to include browser and system
+                  details with your report.
+                </p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="submit"
+                disabled={submitMutation.isPending}
+                className="w-full sm:w-auto"
+              >
+                {submitMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <SendHorizontal className="mr-2 h-4 w-4" />
+                    Submit Report
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}

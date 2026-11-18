@@ -1,0 +1,22 @@
+node_modules
+dist
+
+# yarn v4
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+.env
+.local/
+client/public/uploads
+postgres-data/
+
+docs/backlog.md

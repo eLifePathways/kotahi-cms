@@ -1,0 +1,111 @@
+# Local development: `docker compose up` starts the CMS with its own database
+# and MinIO for files, with working defaults for every setting. Override them
+# in .env.
+
+services:
+  app:
+    build: .
+    container_name: kotahi-cms
+    platform: linux/amd64
+    image: vlangaelife/kotahi-cms:2026.11.06-0
+    depends_on:
+      db:
+        condition: service_healthy
+      createbucket:
+        condition: service_completed_successfully
+    ports:
+      - ${PORT:-5120}:5120
+    command: ["yarn", "dev"]
+    environment:
+      - NODE_ENV=development
+      # Always the database below; POSTGRES_URL in .env is for running outside
+      # Docker, where localhost means your machine.
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-dev}:${POSTGRES_PASSWORD:-secretpassword}@db:5432/${POSTGRES_DB:-kotahi_cms}
+      - PORT=5120
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - S3_URL=${S3_URL:-http://fileHosting:9000}
+      - S3_BUCKET=${S3_BUCKET:-uploads}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-nonRootUser}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-nonRootPassword}
+      - S3_REGION=${S3_REGION:-}
+    # Lets the CMS reach a Kotahi running on your machine at
+    # http://host.docker.internal:3000/graphql, on Linux too.
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      # Mount local source so edits hot-reload inside the container (HMR).
+      - ./client:/app/client
+      - ./server:/app/server
+      - ./shared:/app/shared
+      - ./migrations:/app/migrations
+      - ./vite.config.ts:/app/vite.config.ts
+      - ./drizzle.config.ts:/app/drizzle.config.ts
+      - ./tsconfig.json:/app/tsconfig.json
+      # Keep the image's (amd64) node_modules — do not let the host shadow it.
+      - /app/node_modules
+    tty: true
+    init: true
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-dev}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secretpassword}
+      - POSTGRES_DB=${POSTGRES_DB:-kotahi_cms}
+    # A random local port by default (`docker compose port db 5432`), so it
+    # doesn't clash with Kotahi's Postgres on 5432. Set POSTGRES_PORT to fix it.
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-0}:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-dev} -d ${POSTGRES_DB:-kotahi_cms}",
+        ]
+      interval: 1s
+      retries: 30
+
+  # S3-compatible file storage, as in Kotahi. Its ports get random local
+  # ports by default (`docker compose port fileHosting 9001` for the console),
+  # so they don't clash with Kotahi's MinIO; set S3_PORT and
+  # MINIO_CONSOLE_PORT to fix them.
+  fileHosting:
+    image: pgsty/minio
+    ports:
+      - 127.0.0.1:${S3_PORT:-0}:9000
+      - 127.0.0.1:${MINIO_CONSOLE_PORT:-0}:9001
+    volumes:
+      - minio-storage:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-superSecretAdminPassword}
+    command: server --console-address ":9001" /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 1s
+      retries: 30
+
+  # Creates the non-root user and bucket the CMS connects with, then exits
+  createbucket:
+    image: pgsty/mc
+    depends_on:
+      fileHosting:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set cms http://fileHosting:9000 ${MINIO_ROOT_USER:-admin} ${MINIO_ROOT_PASSWORD:-superSecretAdminPassword}
+        mc admin user add cms/ ${S3_ACCESS_KEY_ID:-nonRootUser} ${S3_SECRET_ACCESS_KEY:-nonRootPassword}
+        mc mb --ignore-existing cms/${S3_BUCKET:-uploads}
+        # Fails harmlessly when already attached, on later runs
+        mc admin policy attach cms/ readwrite --user=${S3_ACCESS_KEY_ID:-nonRootUser} || true
+
+volumes:
+  postgres-data:
+  minio-storage:

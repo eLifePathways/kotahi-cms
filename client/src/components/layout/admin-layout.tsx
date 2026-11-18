@@ -1,0 +1,171 @@
+import React from 'react'
+import { Link, useLocation } from 'wouter'
+import { clearToken, cn, isTokenValid } from '@/lib/utils'
+import {
+  Home,
+  Users,
+  BookOpen,
+  Settings,
+  BarChart,
+  ArrowLeft,
+  UserCog,
+  AlertCircle,
+  Layout,
+  Globe,
+} from 'lucide-react'
+import { Button } from '../ui/button'
+
+const AdminSidebar = () => {
+  const [location, navigate] = useLocation()
+
+  const handleLogout = () => {
+    clearToken()
+    navigate('/login')
+  }
+
+  const navItems = [
+    {
+      href: '/admin',
+      label: 'Dashboard',
+      icon: <Home className="h-5 w-5" />,
+      active: location === '/admin' || location === '/admin/',
+    },
+    {
+      href: '/admin/team',
+      label: 'Team Members',
+      icon: <Users className="h-5 w-5" />,
+      active: location === '/admin/team' || location.startsWith('/admin/team/'),
+    },
+    {
+      href: '/admin/publications',
+      label: 'Publications',
+      icon: <BookOpen className="h-5 w-5" />,
+      active:
+        location === '/admin/publications' ||
+        location.startsWith('/admin/publications/'),
+    },
+    {
+      href: '/admin/what-we-do',
+      label: 'What We Do',
+      icon: <Layout className="h-5 w-5" />,
+      active:
+        location === '/admin/what-we-do' ||
+        location.startsWith('/admin/what-we-do/'),
+    },
+    {
+      href: '/admin/users',
+      label: 'User Management',
+      icon: <UserCog className="h-5 w-5" />,
+      active:
+        location === '/admin/users' || location.startsWith('/admin/users/'),
+    },
+    {
+      href: '/admin/issues',
+      label: 'Issue Reports',
+      icon: <AlertCircle className="h-5 w-5" />,
+      active:
+        location === '/admin/issues' || location.startsWith('/admin/issues/'),
+    },
+    {
+      href: '/admin/analytics',
+      label: 'Analytics',
+      icon: <BarChart className="h-5 w-5" />,
+      active:
+        location === '/admin/analytics' ||
+        location.startsWith('/admin/analytics/'),
+    },
+    {
+      href: '/admin/graphql',
+      label: 'GraphQL API',
+      icon: <Globe className="h-5 w-5" />,
+      active:
+        location === '/admin/graphql' || location.startsWith('/admin/graphql/'),
+    },
+    {
+      href: '/admin/settings',
+      label: 'Settings',
+      icon: <Settings className="h-5 w-5" />,
+      active:
+        location === '/admin/settings' ||
+        location.startsWith('/admin/settings/'),
+    },
+  ]
+
+  return (
+    <div className="w-64 h-screen bg-card border-r border-border flex flex-col">
+      <div className="p-6 border-b border-border">
+        <h1 className="text-xl font-bold text-primary">Admin</h1>
+        <p className="text-sm text-muted-foreground">
+          Content Management System
+        </p>
+        <div className="pt-4">
+          <Button onClick={handleLogout}>Logout</Button>
+        </div>
+      </div>
+
+      <nav className="flex-1 pt-4 pb-4 overflow-y-auto">
+        <div className="px-4 space-y-1">
+          {navItems.map(item => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center px-4 py-3 text-sm font-medium rounded-md transition-colors',
+                item.active
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-primary hover:bg-primary/5',
+              )}
+            >
+              {item.icon}
+              <span className="ml-3">{item.label}</span>
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      <div className="p-4 border-t border-border">
+        <Link
+          href="/"
+          className="flex items-center px-4 py-2 text-sm font-medium rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5"
+        >
+          <ArrowLeft className="h-5 w-5 mr-3" />
+          Return to Site
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+interface AdminLayoutProps {
+  children: React.ReactNode
+}
+
+const AdminLayout = ({ children }: AdminLayoutProps) => {
+  const [location, navigate] = useLocation()
+  const valid = isTokenValid()
+
+  React.useEffect(() => {
+    if (!valid) {
+      clearToken()
+      navigate('/login')
+      return
+    }
+
+    // If we're at exactly /admin without trailing slash, redirect to /admin/
+    if (location === '/admin') {
+      navigate('/admin/')
+    }
+  }, [location, navigate, valid])
+
+  // Never render the admin shell for an invalid or expired token.
+  if (!valid) return null
+
+  return (
+    <div className="flex h-screen bg-muted">
+      <AdminSidebar />
+      <main className="flex-1 overflow-auto p-6">{children}</main>
+    </div>
+  )
+}
+
+export default AdminLayout
