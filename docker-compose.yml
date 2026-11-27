@@ -6,8 +6,6 @@ services:
   app:
     build: .
     container_name: kotahi-cms
-    platform: linux/amd64
-    image: vlangaelife/kotahi-cms:2026.11.06-0
     depends_on:
       db:
         condition: service_healthy
