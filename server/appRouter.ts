@@ -15,7 +15,14 @@ import {
   type SettingsFormData,
   type TeamMember,
 } from '../shared/schema'
-import { isKotahiSettingsFormData } from '../shared/utils'
+import {
+  GROUP_SLUG_PATTERN,
+  isKotahiSettingsFormData,
+  reservedGroupSlugs,
+  slugify,
+} from '../shared/utils'
+import { isCuratedFont, websiteSettingsSchema } from '../shared/website'
+import { getGoogleFontFamilies, googleFontExists } from './google-fonts'
 import { TRPCError } from '@trpc/server'
 import {
   getDeviceDistribution,
@@ -31,11 +38,87 @@ import {
   hashPassword,
   stripUserPassword,
 } from './auth'
-import { fetchFromKotahi, syncFromKotahi } from './kotahi-sync'
+import {
+  fetchFromKotahi,
+  fetchKotahiGroup,
+  syncFromKotahi,
+} from './kotahi-sync'
 
 const timeRangeInput = z.object({
   timeRange: z.enum(timeRanges).default('7days'),
 })
+
+const groupInput = z.object({ groupId: z.uuid() })
+
+// A group's Kotahi connection: where its GraphQL API is, and which Kotahi
+// group it publishes from.
+const groupKotahiSettingsInput = z.object({
+  endpoint: z.url({
+    protocol: /^https?$/,
+    error: 'Endpoint must be an http:// or https:// URL',
+  }),
+  apiKey: z
+    .string()
+    .trim()
+    .nullish()
+    .transform(apiKey => apiKey || null),
+  kotahiGroupId: z.uuid({ error: 'Choose a Kotahi group' }),
+})
+
+// Fonts outside the curated lists are checked with Google, so a typo can't
+// leave a site falling back to the browser's default font.
+const assertGoogleFontsExist = async (families: string[]) => {
+  for (const family of families.filter(f => !isCuratedFont(f))) {
+    const exists = await googleFontExists(family).catch((error: Error) => {
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message: `Couldn't check "${family}" with Google Fonts: ${error.message}`,
+        cause: error,
+      })
+    })
+
+    if (!exists) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `Google Fonts has no font called "${family}"`,
+      })
+    }
+  }
+}
+
+// A slug made from the Kotahi group's name, looked up from Kotahi rather than
+// taken from the client. Kotahi doesn't restrict group names, so they're
+// slugified: "single_form" is kept, "Single Form" becomes "single-form".
+const getKotahiGroupSlug = async (
+  kotahi: z.infer<typeof groupKotahiSettingsInput>,
+): Promise<string> => {
+  const kotahiGroup = await fetchKotahiGroup(kotahi).catch((error: Error) => {
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `Couldn't look up the Kotahi group: ${error.message}`,
+      cause: error,
+    })
+  })
+
+  if (!kotahiGroup) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `${kotahi.endpoint} has no group with id ${kotahi.kotahiGroupId}`,
+    })
+  }
+
+  const kotahiGroupName = kotahiGroup.name ?? ''
+  const slug = slugify(kotahiGroupName)
+
+  if (!slug) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Can't make a slug from "${kotahiGroupName}"; enter one`,
+    })
+  }
+
+  return slug
+}
 
 // Settings rows hold differently shaped form data per purpose (kotahi,
 // general), so only check that it is an object.
@@ -162,12 +245,150 @@ export const appRouter = router({
     }),
   //#endregion graphql proxy
 
+  //#region group
+  createGroup: adminProcedure
+    .input(
+      z.object({
+        name: z.string().trim().min(1, { error: 'Name is required' }),
+        slug: z
+          .string()
+          .trim()
+          .regex(GROUP_SLUG_PATTERN, {
+            error:
+              'Slug may only use lowercase letters and numbers, separated by single hyphens or underscores',
+          })
+          .optional()
+          .or(z.literal('').transform(() => undefined)),
+        isActive: z.boolean().default(true),
+        kotahi: groupKotahiSettingsInput,
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { isActive, kotahi, name } = input
+      const slug = input.slug ?? (await getKotahiGroupSlug(kotahi))
+
+      if (reservedGroupSlugs.includes(slug)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `"${slug}" is used by the app; choose another slug`,
+        })
+      }
+
+      if (await storage.getGroupByName(name)) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `A group named "${name}" already exists`,
+        })
+      }
+
+      if (await storage.getGroupBySlug(slug)) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `A group with the slug "${slug}" already exists`,
+        })
+      }
+
+      return storage.createGroup({ name, slug, isActive }, kotahi)
+    }),
+
+  group: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ input }) => {
+      const group = await storage.getGroupById(input.id)
+
+      if (!group) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
+      }
+
+      return group
+    }),
+
+  groupBySlug: publicProcedure
+    .input(z.object({ slug: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const group = await storage.getGroupBySlug(input.slug)
+
+      if (!group || (!group.isActive && !ctx.user)) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
+      }
+
+      return group
+    }),
+
+  groups: adminProcedure.query(async () => {
+    return storage.getAllGroups()
+  }),
+
+  activeGroups: publicProcedure.query(async () => {
+    return storage.getActiveGroups()
+  }),
+
+  updateGroup: adminProcedure
+    .input(
+      z.object({
+        id: z.uuid(),
+        data: z.object({
+          name: z
+            .string()
+            .trim()
+            .min(1, { error: 'Name is required' })
+            .optional(),
+          isActive: z.boolean().optional(),
+          kotahi: groupKotahiSettingsInput.optional(),
+          website: websiteSettingsSchema.optional(),
+        }),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { data, id } = input
+
+      if (data.name !== undefined) {
+        const namesake = await storage.getGroupByName(data.name)
+
+        if (namesake && namesake.id !== id) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `A group named "${data.name}" already exists`,
+          })
+        }
+      }
+
+      if (data.website) {
+        const { sansSerifFont, serifFont } = data.website.theme
+        await assertGoogleFontsExist([serifFont, sansSerifFont])
+      }
+
+      const updatedGroup = await storage.updateGroup(id, data)
+
+      if (!updatedGroup) {
+        throw new TRPCError({ code: 'NOT_FOUND' })
+      }
+
+      return updatedGroup
+    }),
+
+  groupWebsite: publicProcedure
+    .input(groupInput)
+    .query(async ({ input }) => storage.getWebsiteSettings(input.groupId)),
+
+  // Every Google Fonts family, for choosing a font outside the curated list.
+  googleFonts: adminProcedure.query(async () =>
+    getGoogleFontFamilies().catch((error: Error) => {
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message: `Couldn't load the Google Fonts list: ${error.message}`,
+        cause: error,
+      })
+    }),
+  ),
+  //#endregion group
+
   //#region hero section
   heroSectionByName: publicProcedure
-    .input(z.object({ name: z.string() }))
+    .input(groupInput.extend({ name: z.string() }))
     .query(async ({ input }) => {
-      const { name } = input
-      const heroSection = await storage.getHeroSettingsByName(name)
+      const { groupId, name } = input
+      const heroSection = await storage.getHeroSettingsByName(groupId, name)
 
       if (!heroSection) {
         throw new TRPCError({ code: 'NOT_FOUND' })
@@ -180,7 +401,7 @@ export const appRouter = router({
     .input(
       z.object({
         id: z.uuid(),
-        data: insertHeroSectionSettingsSchema.partial(),
+        data: insertHeroSectionSettingsSchema.omit({ groupId: true }).partial(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -349,47 +570,52 @@ export const appRouter = router({
   //#endregion issues
 
   //#region kotahi
-  syncFromKotahi: adminProcedure.mutation(async () => {
-    const settings = await storage.getSettings('kotahi')
+  syncFromKotahi: adminProcedure
+    .input(groupInput)
+    .mutation(async ({ input }) => {
+      const { groupId } = input
 
-    if (!settings || !isKotahiSettingsFormData(settings.formData)) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message: 'Invalid Kotahi settings',
-      })
-    }
+      const settings = await storage.getSettings(groupId, 'kotahi')
 
-    if (!settings.formData.endpoint) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message: 'Invalid Kotahi endpoint',
-      })
-    }
+      if (!settings || !isKotahiSettingsFormData(settings.formData)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Invalid Kotahi settings',
+        })
+      }
 
-    try {
-      return await syncFromKotahi(settings.formData)
-    } catch (error) {
-      throw new TRPCError({
-        code: 'BAD_GATEWAY',
-        message: `Failed to sync with Kotahi: ${error instanceof Error ? error.message : String(error)}`,
-        cause: error,
-      })
-    }
-  }),
+      if (!settings.formData.endpoint) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Invalid Kotahi endpoint',
+        })
+      }
+
+      try {
+        return await syncFromKotahi(groupId, settings.formData)
+      } catch (error) {
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: `Failed to sync with Kotahi: ${error instanceof Error ? error.message : String(error)}`,
+          cause: error,
+        })
+      }
+    }),
   //#endregion kotahi
 
   //#region publications
   publications: publicProcedure
     .input(
-      z.object({
+      groupInput.extend({
         searchQuery: z.string().optional(),
         yearRanges: z.string().optional(),
       }),
     )
     .query(async ({ input }) => {
-      const { searchQuery, yearRanges } = input
+      const { groupId, searchQuery, yearRanges } = input
 
       const filteredPublications = await storage.getFilteredPublications(
+        groupId,
         yearRanges,
         searchQuery,
       )
@@ -397,9 +623,13 @@ export const appRouter = router({
       return filteredPublications
     }),
 
-  publicationsTotalCount: publicProcedure.query(async () => {
-    return storage.getPublicationsTotalCount()
-  }),
+  publicationsTotalCount: publicProcedure
+    .input(groupInput)
+    .query(async ({ input }) => {
+      const { groupId } = input
+
+      return storage.getPublicationsTotalCountForGroup(groupId)
+    }),
 
   publication: publicProcedure
     .input(z.object({ id: z.uuid() }))
@@ -416,13 +646,16 @@ export const appRouter = router({
     }),
 
   publicationAndReviews: publicProcedure
-    .input(z.object({ shortId: z.coerce.number().int().positive() }))
+    .input(groupInput.extend({ shortId: z.coerce.number().int().positive() }))
     .query(async ({ input }) => {
-      const { shortId } = input
+      const { groupId, shortId } = input
 
       console.log('shoertID', shortId)
 
-      const publication = await storage.getPublicationByShortId(shortId)
+      const publication = await storage.getPublicationByShortIdForGroup(
+        groupId,
+        shortId,
+      )
 
       if (!publication) {
         throw new TRPCError({ code: 'NOT_FOUND' })
@@ -437,10 +670,12 @@ export const appRouter = router({
     .input(
       z.object({
         id: z.uuid(),
-        // The Kotahi ids tie the publication to its manuscript; only the
-        // sync sets them.
         data: insertPublicationSchema
-          .omit({ kotahiManuscriptId: true, kotahiShortId: true })
+          .omit({
+            groupId: true,
+            kotahiManuscriptId: true,
+            kotahiShortId: true,
+          })
           .partial(),
       }),
     )
@@ -472,11 +707,11 @@ export const appRouter = router({
 
   //#region settings
   settingsByPurpose: adminProcedure
-    .input(z.object({ purpose: z.string() }))
+    .input(groupInput.extend({ purpose: z.string() }))
     .query(async ({ input }) => {
-      const { purpose } = input
+      const { groupId, purpose } = input
 
-      const settings = await storage.getSettings(purpose)
+      const settings = await storage.getSettings(groupId, purpose)
 
       if (!settings) {
         throw new TRPCError({ code: 'NOT_FOUND' })
@@ -516,11 +751,15 @@ export const appRouter = router({
       return newMember
     }),
 
-  teamMembers: publicProcedure.query(async ({ ctx }) => {
-    const members = await storage.getAllTeamMembers()
+  teamMembers: publicProcedure
+    .input(groupInput)
+    .query(async ({ ctx, input }) => {
+      const { groupId } = input
 
-    return members.map(member => withoutEmailForVisitors(member, ctx.user))
-  }),
+      const members = await storage.getAllTeamMembersForGroup(groupId)
+
+      return members.map(member => withoutEmailForVisitors(member, ctx.user))
+    }),
 
   teamMember: publicProcedure
     .input(z.object({ id: z.uuid() }))
@@ -537,7 +776,12 @@ export const appRouter = router({
     }),
 
   updateTeamMember: adminProcedure
-    .input(z.object({ id: z.uuid(), data: insertTeamMemberSchema.partial() }))
+    .input(
+      z.object({
+        id: z.uuid(),
+        data: insertTeamMemberSchema.omit({ groupId: true }).partial(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const { data, id } = input
 
@@ -550,10 +794,15 @@ export const appRouter = router({
       return updatedMember
     }),
 
-  reorderTeamMembers: adminProcedure
-    .input(z.array(z.uuid()))
+  reorderTeamMembersForGroup: adminProcedure
+    .input(groupInput.extend({ memberIds: z.array(z.uuid()) }))
     .mutation(async ({ input }) => {
-      const reorderedMembers = await storage.reorderTeamMembers(input)
+      const { groupId, memberIds } = input
+
+      const reorderedMembers = await storage.reorderTeamMembersForGroup(
+        groupId,
+        memberIds,
+      )
       return reorderedMembers
     }),
 
@@ -751,13 +1000,17 @@ export const appRouter = router({
       return newSection
     }),
 
-  whatWeDoSections: publicProcedure.query(async () => {
-    const sections = await storage.getAllWhatWeDoSections()
+  whatWeDoSections: publicProcedure
+    .input(groupInput)
+    .query(async ({ input }) => {
+      const { groupId } = input
 
-    console.log('whatWeDoSections sections', sections)
+      const sections = await storage.getAllWhatWeDoSections(groupId)
 
-    return sections
-  }),
+      console.log('whatWeDoSections sections', sections)
+
+      return sections
+    }),
 
   whatWeDoSection: publicProcedure
     .input(z.object({ id: z.uuid() }))
@@ -774,11 +1027,11 @@ export const appRouter = router({
     }),
 
   whatWeDoSectionBySlug: publicProcedure
-    .input(z.object({ slug: z.string().min(1) }))
+    .input(groupInput.extend({ slug: z.string().min(1) }))
     .query(async ({ input }) => {
-      const { slug } = input
+      const { groupId, slug } = input
 
-      const section = await storage.getWhatWeDoSectionBySlug(slug)
+      const section = await storage.getWhatWeDoSectionBySlug(groupId, slug)
 
       if (!section) {
         throw new TRPCError({ code: 'NOT_FOUND' })
@@ -789,7 +1042,10 @@ export const appRouter = router({
 
   updateWhatWeDoSection: adminProcedure
     .input(
-      z.object({ id: z.uuid(), data: insertWhatWeDoSectionSchema.partial() }),
+      z.object({
+        id: z.uuid(),
+        data: insertWhatWeDoSectionSchema.omit({ groupId: true }).partial(),
+      }),
     )
     .mutation(async ({ input }) => {
       const { data, id } = input

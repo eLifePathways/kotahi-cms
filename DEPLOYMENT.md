@@ -11,6 +11,9 @@ client on one port (default `5120`), next to a PostgreSQL database.
   CMS can use the same service with its own bucket.
 - Either Docker, or Node.js 26+ with Yarn 4 (via Corepack).
 - A reachable Kotahi GraphQL endpoint for the publications sync.
+- Outbound access to Google Fonts (`fonts.google.com` and
+  `fonts.googleapis.com`), for the font search in a group's settings and to
+  check custom fonts. Visitors' browsers load the fonts from Google too.
 
 ## Environment variables
 
@@ -90,9 +93,11 @@ server {
 
 1. Open the site and sign in at `/login` as `admin`.
 2. Change the admin password under Admin → User Management.
-3. Under Admin → GraphQL API, enter the Kotahi endpoint and group, and save.
-4. Under Admin → Publications, press Refresh Publications and check that
-   publications and their reviews appear on the public site.
+3. Under Admin → Manage Groups, add a group: enter the Kotahi endpoint, check
+   it, and choose the Kotahi group.
+4. In the group's settings, fill in its website details and look.
+5. Under the group's Publications, press Refresh Publications and check that
+   publications and their reviews appear on its site, at `/<slug>`.
 
 ## Updating
 
@@ -107,5 +112,7 @@ kotahi-cms`). A missing `POSTGRES_URL` or an unreachable database stops the
 - **`relation "…" already exists`**: the database has tables from a migration
   history that no longer matches `migrations/`, for example after migrations
   were squashed. Use a fresh database.
-- **The sync fails**: check the endpoint and group under Admin → GraphQL API.
-  The error message from Kotahi is shown in the toast.
+- **The sync fails**: check the endpoint and Kotahi group under the group's
+  Settings → API. The error message from Kotahi is shown in the toast.
+- **A group's site shows "Page not found"**: the group is inactive (only
+  admins can see it) or the slug is wrong; check Admin → Manage Groups.

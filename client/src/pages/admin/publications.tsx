@@ -43,6 +43,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { useTRPC, type RouterOutputs } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 import { isKotahiSettingsFormData } from '@shared/utils'
 import HeroSection from '@/components/sections/hero-section'
 import { SafeHtml } from '../../components/ui/safe-html'
@@ -77,18 +78,19 @@ export default function PublicationsAdmin() {
 
   const queryClient = useQueryClient()
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
   const { toast } = useToast()
 
   const { data: publications, isLoading: isLoadingPublications } = useQuery(
-    trpc.publications.queryOptions({}),
+    trpc.publications.queryOptions({ groupId }),
   )
 
   const { data: settings, isLoading: isSettingsQueryLoading } = useQuery(
-    trpc.settingsByPurpose.queryOptions({ purpose: 'kotahi' }),
+    trpc.settingsByPurpose.queryOptions({ groupId, purpose: 'kotahi' }),
   )
 
   const { data: heroSectionData, isLoading: heroSectionLoading } = useQuery(
-    trpc.heroSectionByName.queryOptions({ name: 'publications' }),
+    trpc.heroSectionByName.queryOptions({ groupId, name: 'publications' }),
   )
 
   // The list, and any single publication, cached under the publication
@@ -198,7 +200,10 @@ export default function PublicationsAdmin() {
           description: 'Page header updated successfully!',
         })
         queryClient.invalidateQueries({
-          queryKey: trpc.heroSectionByName.queryKey({ name: 'publications' }),
+          queryKey: trpc.heroSectionByName.queryKey({
+            groupId,
+            name: 'publications',
+          }),
         })
         setEditingHeroSection(false)
       },
@@ -270,7 +275,7 @@ export default function PublicationsAdmin() {
   const handleRefreshPublications = async () => {
     setIsFetchingPublications(true)
 
-    refreshPublications.mutate()
+    refreshPublications.mutate({ groupId })
   }
 
   return (

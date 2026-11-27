@@ -11,6 +11,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTRPC, type RouterOutputs } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 
 // Types for What We Do content
 type WhatWeDoSection = RouterOutputs['whatWeDoSections'][number]
@@ -127,16 +128,17 @@ const SectionContent = ({ sectionId }: { sectionId: string }) => {
 
 export default function WhatWeDo() {
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
 
   // Fetch What We Do sections
   const {
     data: sections = [],
     isLoading,
     error,
-  } = useQuery(trpc.whatWeDoSections.queryOptions())
+  } = useQuery(trpc.whatWeDoSections.queryOptions({ groupId }))
 
   const { data: heroSectionData, isLoading: heroSectionLoading } = useQuery(
-    trpc.heroSectionByName.queryOptions({ name: 'whatWeDo' }),
+    trpc.heroSectionByName.queryOptions({ groupId, name: 'whatWeDo' }),
   )
 
   const [activeTab, setActiveTab] = useState<string>('')

@@ -12,84 +12,141 @@ import {
   AlertCircle,
   Layout,
   Globe,
+  Boxes,
 } from 'lucide-react'
+import { reservedGroupSlugs } from '@shared/utils'
+import { globalAdminTheme, useApplyTheme } from '@/lib/group-theme'
+import DocumentHead, { APP_NAME } from './document-head'
 import { Button } from '../ui/button'
+
+type NavItem = {
+  href: string
+  label: string
+  icon: React.ReactNode
+  // Only the exact path, for links whose path prefixes every other page's.
+  exact?: boolean
+}
+
+const globalNavItems: NavItem[] = [
+  {
+    href: '/',
+    label: 'Dashboard',
+    icon: <Home className="h-5 w-5" />,
+    exact: true,
+  },
+  {
+    href: '/manage',
+    label: 'Manage Groups',
+    icon: <Boxes className="h-5 w-5" />,
+  },
+  {
+    href: '/users',
+    label: 'User Management',
+    icon: <UserCog className="h-5 w-5" />,
+  },
+  {
+    href: '/analytics',
+    label: 'Analytics',
+    icon: <BarChart className="h-5 w-5" />,
+  },
+]
+
+const groupNavItems = (groupSlug: string): NavItem[] =>
+  [
+    {
+      href: '',
+      label: 'Group Dashboard',
+      icon: <Home className="h-5 w-5" />,
+      exact: true,
+    },
+    {
+      href: '/team',
+      label: 'Team Members',
+      icon: <Users className="h-5 w-5" />,
+    },
+    {
+      href: '/publications',
+      label: 'Publications',
+      icon: <BookOpen className="h-5 w-5" />,
+    },
+    {
+      href: '/what-we-do',
+      label: 'What We Do',
+      icon: <Layout className="h-5 w-5" />,
+    },
+    {
+      href: '/issues',
+      label: 'Issue Reports',
+      icon: <AlertCircle className="h-5 w-5" />,
+    },
+    {
+      href: '/settings',
+      label: 'Settings',
+      icon: <Settings className="h-5 w-5" />,
+    },
+  ].map(item => ({
+    ...item,
+    href: `/${groupSlug}${item.href}`,
+  }))
+
+const NavLinks = ({
+  items,
+  location,
+}: {
+  items: NavItem[]
+  location: string
+}) => (
+  <div className="px-4 space-y-1">
+    {items.map(item => {
+      const active =
+        location === item.href ||
+        (!item.exact && location.startsWith(`${item.href}/`))
+
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          className={cn(
+            'flex items-center px-4 py-3 text-sm font-medium rounded-md transition-colors',
+            active
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:text-primary hover:bg-primary/5',
+          )}
+        >
+          {item.icon}
+          <span className="ml-3">{item.label}</span>
+        </Link>
+      )
+    })}
+  </div>
+)
+
+const useAdminGroupSlug = (): string | undefined => {
+  // Relative to /admin, as the layout renders inside the /admin route.
+  const [location] = useLocation()
+  const [firstSegment] = location.split('/').filter(Boolean)
+
+  return firstSegment && !reservedGroupSlugs.includes(firstSegment)
+    ? firstSegment
+    : undefined
+}
+
+// Pages about one group take that group's look and title instead
+// (GroupTheme, in App.tsx).
+const GlobalAdminTheme = () => {
+  useApplyTheme(globalAdminTheme)
+
+  return <DocumentHead title={`Admin · ${APP_NAME}`} />
+}
 
 const AdminSidebar = () => {
   const [location, navigate] = useLocation()
+  const groupSlug = useAdminGroupSlug()
 
   const handleLogout = () => {
     clearToken()
-    navigate('/login')
+    navigate('~/login')
   }
-
-  const navItems = [
-    {
-      href: '/admin',
-      label: 'Dashboard',
-      icon: <Home className="h-5 w-5" />,
-      active: location === '/admin' || location === '/admin/',
-    },
-    {
-      href: '/admin/team',
-      label: 'Team Members',
-      icon: <Users className="h-5 w-5" />,
-      active: location === '/admin/team' || location.startsWith('/admin/team/'),
-    },
-    {
-      href: '/admin/publications',
-      label: 'Publications',
-      icon: <BookOpen className="h-5 w-5" />,
-      active:
-        location === '/admin/publications' ||
-        location.startsWith('/admin/publications/'),
-    },
-    {
-      href: '/admin/what-we-do',
-      label: 'What We Do',
-      icon: <Layout className="h-5 w-5" />,
-      active:
-        location === '/admin/what-we-do' ||
-        location.startsWith('/admin/what-we-do/'),
-    },
-    {
-      href: '/admin/users',
-      label: 'User Management',
-      icon: <UserCog className="h-5 w-5" />,
-      active:
-        location === '/admin/users' || location.startsWith('/admin/users/'),
-    },
-    {
-      href: '/admin/issues',
-      label: 'Issue Reports',
-      icon: <AlertCircle className="h-5 w-5" />,
-      active:
-        location === '/admin/issues' || location.startsWith('/admin/issues/'),
-    },
-    {
-      href: '/admin/analytics',
-      label: 'Analytics',
-      icon: <BarChart className="h-5 w-5" />,
-      active:
-        location === '/admin/analytics' ||
-        location.startsWith('/admin/analytics/'),
-    },
-    {
-      href: '/admin/graphql',
-      label: 'GraphQL API',
-      icon: <Globe className="h-5 w-5" />,
-      active:
-        location === '/admin/graphql' || location.startsWith('/admin/graphql/'),
-    },
-    {
-      href: '/admin/settings',
-      label: 'Settings',
-      icon: <Settings className="h-5 w-5" />,
-      active:
-        location === '/admin/settings' ||
-        location.startsWith('/admin/settings/'),
-    },
-  ]
 
   return (
     <div className="w-64 h-screen bg-card border-r border-border flex flex-col">
@@ -104,28 +161,21 @@ const AdminSidebar = () => {
       </div>
 
       <nav className="flex-1 pt-4 pb-4 overflow-y-auto">
-        <div className="px-4 space-y-1">
-          {navItems.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center px-4 py-3 text-sm font-medium rounded-md transition-colors',
-                item.active
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:text-primary hover:bg-primary/5',
-              )}
-            >
-              {item.icon}
-              <span className="ml-3">{item.label}</span>
-            </Link>
-          ))}
-        </div>
+        <NavLinks items={globalNavItems} location={location} />
+
+        {groupSlug && (
+          <>
+            <p className="px-8 pt-6 pb-2 text-xs font-semibold uppercase text-muted-foreground">
+              {groupSlug}
+            </p>
+            <NavLinks items={groupNavItems(groupSlug)} location={location} />
+          </>
+        )}
       </nav>
 
       <div className="p-4 border-t border-border">
         <Link
-          href="/"
+          href={groupSlug ? `~/${groupSlug}` : '~/'}
           className="flex items-center px-4 py-2 text-sm font-medium rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5"
         >
           <ArrowLeft className="h-5 w-5 mr-3" />
@@ -141,29 +191,25 @@ interface AdminLayoutProps {
 }
 
 const AdminLayout = ({ children }: AdminLayoutProps) => {
-  const [location, navigate] = useLocation()
+  const [, navigate] = useLocation()
+  const groupSlug = useAdminGroupSlug()
   const valid = isTokenValid()
 
   React.useEffect(() => {
     if (!valid) {
       clearToken()
-      navigate('/login')
-      return
+      navigate('~/login')
     }
-
-    // If we're at exactly /admin without trailing slash, redirect to /admin/
-    if (location === '/admin') {
-      navigate('/admin/')
-    }
-  }, [location, navigate, valid])
+  }, [navigate, valid])
 
   // Never render the admin shell for an invalid or expired token.
   if (!valid) return null
 
   return (
     <div className="flex h-screen bg-muted">
+      {!groupSlug && <GlobalAdminTheme />}
       <AdminSidebar />
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+      <main className="relative flex-1 overflow-auto p-6">{children}</main>
     </div>
   )
 }

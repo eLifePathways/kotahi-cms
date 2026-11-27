@@ -1,11 +1,10 @@
-import React, { useState, useRef } from 'react'
+import React, { useId, useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2, Upload, X, Image as ImageIcon } from 'lucide-react'
-import { apiRequest } from '@/lib/queryClient'
 import { cn } from '@/lib/utils'
-import { useToast } from '@/hooks/use-toast'
+import { useImageUpload } from '@/hooks/use-image-upload'
 
 interface ImageUploadProps {
   className?: string
@@ -22,65 +21,22 @@ export function ImageUpload({
   label = 'Image',
   description = 'Upload an image file (PNG, JPG, GIF up to 10 MB)',
 }: ImageUploadProps) {
-  const [isUploading, setIsUploading] = useState(false)
+  const inputId = useId()
+  const { isUploading, upload } = useImageUpload()
   const [previewUrl, setPreviewUrl] = useState<string | null>(
     currentImageUrl || null,
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { toast } = useToast()
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (!file.type.startsWith('image/')) {
-      toast({
-        title: 'Invalid file type',
-        description: 'Please upload an image file (PNG, JPG, GIF)',
-        variant: 'destructive',
-      })
-      return
-    }
+    const fileUrl = await upload(file)
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast({
-        title: 'File too large',
-        description: 'Image must be less than 10MB',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    setIsUploading(true)
-
-    try {
-      const formData = new FormData()
-      formData.append('image', file)
-
-      const { fileUrl } = await apiRequest<{ fileUrl: string }>(
-        '/api/upload',
-        { method: 'POST', body: formData },
-      )
-
+    if (fileUrl) {
       setPreviewUrl(fileUrl)
       onImageUploaded(fileUrl)
-
-      toast({
-        title: 'Image uploaded',
-        description: 'Save the form to keep it.',
-      })
-    } catch (error) {
-      console.error('Upload failed:', error)
-      toast({
-        title: 'Upload failed',
-        description:
-          error instanceof Error
-            ? error.message
-            : 'There was a problem uploading your image. Please try again.',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsUploading(false)
     }
   }
 
@@ -94,11 +50,11 @@ export function ImageUpload({
 
   return (
     <div className={cn('space-y-2', className)}>
-      <Label htmlFor="image-upload">{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <div className="grid gap-4">
         <div className="flex flex-col items-center gap-4">
           <Input
-            id="image-upload"
+            id={inputId}
             type="file"
             accept="image/*"
             onChange={handleFileChange}

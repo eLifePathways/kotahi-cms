@@ -3,6 +3,7 @@ import { Link, useLocation } from 'wouter'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Menu } from 'lucide-react'
+import { useGroup } from '../../hooks'
 
 const navItems = [
   { name: 'Home', path: '/' },
@@ -13,6 +14,7 @@ const navItems = [
 
 const Header = () => {
   const [location] = useLocation()
+  const group = useGroup()
   const [isOpen, setIsOpen] = useState(false)
 
   const closeSheet = () => setIsOpen(false)
@@ -21,7 +23,7 @@ const Header = () => {
     <header className="bg-background shadow-md">
       <div className="container mx-auto px-4 py-6 flex items-center justify-between border-b border-border">
         <Link href="/" className="font-heading font-bold text-2xl text-primary">
-          Kotahi CMS
+          {group.name}
         </Link>
       </div>
 

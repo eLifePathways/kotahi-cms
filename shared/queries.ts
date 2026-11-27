@@ -27,7 +27,7 @@ export const MANUSCRIPTS_PUBLISHED_SINCE_DATE = {
 				defaultIdentity {
 					id
 					identifier
-			}
+				}
 			}
 		}
 		editors {

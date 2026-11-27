@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 import TeamMemberCard from '@/components/ui/team-member-card'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -13,12 +14,13 @@ const TeamSection = ({
   showAllMembers = false,
 }: TeamSectionProps) => {
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
 
   const {
     data: members,
     isLoading,
     error,
-  } = useQuery(trpc.teamMembers.queryOptions())
+  } = useQuery(trpc.teamMembers.queryOptions({ groupId }))
 
   // Sort members by sortOrder if available
   const sortedMembers = members

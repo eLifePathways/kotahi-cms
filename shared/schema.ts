@@ -9,10 +9,12 @@ import {
   json,
   jsonb,
   uuid,
+  unique,
 } from 'drizzle-orm/pg-core'
 import { type InferSelectModel } from 'drizzle-orm'
 import { createInsertSchema } from 'drizzle-zod'
 import { z } from 'zod'
+import type { WebsiteSettings } from './website'
 
 export type KotahiSettingsFormData = {
   endpoint: string
@@ -20,28 +22,9 @@ export type KotahiSettingsFormData = {
   apiKey: string | null
 }
 
-export type AppSettingsFormData = {
-  website: {
-    siteName: string
-    siteDescription: string
-    contactEmail: string
-    allowRegistration: boolean
-    maintenanceMode: boolean
-    theme: string
-  }
-  api: {
-    apiRateLimit: string
-    enablePublicAPI: boolean
-    requireAPIKey: boolean
-  }
-  security: {
-    adminLoginAttempts: string
-    sessionTimeout: string
-    enableTwoFactor: boolean
-  }
-}
-
-export type SettingsFormData = KotahiSettingsFormData | AppSettingsFormData
+// 'kotahi' rows hold the Kotahi connection; 'general' rows the website
+// settings (see shared/website.ts).
+export type SettingsFormData = KotahiSettingsFormData | WebsiteSettings
 
 export type KotahiConfig = {
   id: string
@@ -157,9 +140,21 @@ export type KotahiPublishedManuscript = {
   decisions: Array<KotahiPublishedReview>
 }
 
+export const groups = pgTable('groups', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull().unique(),
+  // The group's URL segment: /:groupSlug and /admin/:groupSlug.
+  slug: text('slug').notNull().unique(),
+  kotahiGroupId: uuid('kotahi_group_id').notNull(),
+  isActive: boolean('is_active').default(true),
+})
+
 export const teamMembers = pgTable('team_members', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
   title: text('title').notNull(),
   institution: text('institution').notNull(),
   description: text('description').notNull(),
@@ -170,21 +165,30 @@ export const teamMembers = pgTable('team_members', {
   sortOrder: integer('sort_order').default(0),
 })
 
-export const publications = pgTable('publications', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  // Publications only come from the Kotahi sync, so both ids are always set.
-  kotahiManuscriptId: uuid('kotahi_manuscript_id').notNull(),
-  // Stable across manuscript versions, unlike kotahiManuscriptId, which
-  // points at whichever version was last published.
-  kotahiShortId: integer('kotahi_short_id').notNull().unique(),
-  title: text('title').notNull(),
-  authors: text('authors').notNull(),
-  year: integer('year').notNull(),
-  abstract: text('abstract').notNull(),
-  publicationDate: date('publication_date').notNull(),
-  link: text('link'),
-  manuscriptText: text('manuscript_text'),
-})
+export const publications = pgTable(
+  'publications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id),
+    kotahiManuscriptId: uuid('kotahi_manuscript_id').notNull(),
+    kotahiShortId: integer('kotahi_short_id').notNull(),
+    title: text('title').notNull(),
+    authors: text('authors').notNull(),
+    year: integer('year').notNull(),
+    abstract: text('abstract').notNull(),
+    publicationDate: date('publication_date').notNull(),
+    link: text('link'),
+    manuscriptText: text('manuscript_text'),
+  },
+  table => [
+    unique('publications_group_id_kotahi_short_id_unique').on(
+      table.groupId,
+      table.kotahiShortId,
+    ),
+  ],
+)
 
 export const reviews = pgTable('reviews', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -206,6 +210,9 @@ export const users = pgTable('users', {
 
 export const settings = pgTable('settings', {
   id: uuid('id').primaryKey().defaultRandom(),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
   purpose: text('purpose').notNull(),
   formData: jsonb('form_data')
     .$type<SettingsFormData>()
@@ -213,14 +220,27 @@ export const settings = pgTable('settings', {
     .default({} as SettingsFormData),
 })
 
-export const heroSectionSettings = pgTable('hero_section_settings', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull().unique(),
-  title: text('title').notNull(),
-  description: text('description').notNull(),
-})
+export const heroSectionSettings = pgTable(
+  'hero_section_settings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id),
+    name: text('name').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull(),
+  },
+  table => [
+    unique('hero_section_settings_group_id_name_unique').on(
+      table.groupId,
+      table.name,
+    ),
+  ],
+)
 
 // Insert schemas
+export const insertGroupSchema = createInsertSchema(groups).omit({ id: true })
 export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({
   id: true,
 })
@@ -252,6 +272,9 @@ export const insertHeroSectionSettingsSchema = createInsertSchema(
 ).omit({ id: true })
 
 // Types
+export interface InsertGroup extends z.infer<typeof insertGroupSchema> {}
+export interface Group extends InferSelectModel<typeof groups> {}
+
 export interface InsertTeamMember extends z.infer<
   typeof insertTeamMemberSchema
 > {}
@@ -398,17 +421,29 @@ export interface InsertIssueComment extends z.infer<
 export interface IssueComment extends InferSelectModel<typeof issueComments> {}
 
 // What We Do content
-export const whatWeDoSections = pgTable('what_we_do_sections', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  title: text('title').notNull(),
-  subtitle: text('subtitle'),
-  description: text('description'),
-  imageUrl: text('image_url'),
-  slug: text('slug').notNull().unique(), // For URL and tab identification
-  sortOrder: integer('sort_order').notNull().default(0),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
+export const whatWeDoSections = pgTable(
+  'what_we_do_sections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id),
+    title: text('title').notNull(),
+    subtitle: text('subtitle'),
+    description: text('description'),
+    imageUrl: text('image_url'),
+    slug: text('slug').notNull(), // For URL and tab identification
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  table => [
+    unique('what_we_do_sections_group_id_slug_unique').on(
+      table.groupId,
+      table.slug,
+    ),
+  ],
+)
 
 export const whatWeDoContent = pgTable('what_we_do_content', {
   id: uuid('id').primaryKey().defaultRandom(),

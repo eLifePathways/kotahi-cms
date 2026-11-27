@@ -72,3 +72,30 @@ const UUID_PATTERN =
 
 export const isUuid = (value: unknown): value is string =>
   typeof value === 'string' && UUID_PATTERN.test(value)
+
+// Lowercase letters and digits, in words joined by single hyphens or
+// underscores. Underscores because Kotahi group names use them, as in
+// "single_form".
+export const GROUP_SLUG_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
+
+// First path segments the app routes itself, at / or /admin, so a group
+// with one of these slugs would be unreachable.
+export const reservedGroupSlugs = [
+  'admin',
+  'analytics',
+  'login',
+  'manage',
+  'users',
+]
+
+// "Acme Press Ltd." → "acme-press-ltd", "single_form" → "single_form".
+// Separators collapse to one: a hyphen if the run had any, else underscore.
+export const slugify = (value: string): string =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '-')
+    .replace(/[-_]*-[-_]*/g, '-')
+    .replace(/_+/g, '_')
+    .replace(/^[-_]+|[-_]+$/g, '')

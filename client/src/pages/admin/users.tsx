@@ -67,9 +67,9 @@ export default function UsersAdmin() {
       case 'add':
         setAddDialogOpen(isOpen)
         if (isOpen) {
-          setLocation('/admin/users?action=new', { replace: true })
+          setLocation('/users?action=new', { replace: true })
         } else {
-          setLocation('/admin/users', { replace: true })
+          setLocation('/users', { replace: true })
         }
         break
       case 'edit':

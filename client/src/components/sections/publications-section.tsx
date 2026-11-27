@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 import PublicationCard from '@/components/ui/publication-card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +15,7 @@ const PublicationsSection = () => {
   const [pageSize, setPageSize] = useState(PAGE_SIZE)
 
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
   const [location] = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -31,13 +33,17 @@ const PublicationsSection = () => {
   const { data: publications = [], isLoading: isLoadingPublications } =
     useQuery(
       trpc.publications.queryOptions({
+        groupId,
         searchQuery: submittedQuery || undefined,
         yearRanges: yearRanges || undefined,
       }),
     )
 
   const { data: allPublicationsCount } = useQuery(
-    trpc.publicationsTotalCount.queryOptions(undefined, { enabled: isFiltered }),
+    trpc.publicationsTotalCount.queryOptions(
+      { groupId },
+      { enabled: isFiltered },
+    ),
   )
 
   // Set or remove one search param, keeping the others

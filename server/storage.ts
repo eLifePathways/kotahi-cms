@@ -28,10 +28,42 @@ import {
   heroSectionSettings,
   type HeroSectionSettings,
   type InsertHeroSettings,
+  groups,
+  Group,
+  InsertGroup,
+  type KotahiSettingsFormData,
+  type SettingsFormData,
 } from '@shared/schema'
+import {
+  defaultWebsiteSettings,
+  withWebsiteDefaults,
+  type WebsiteSettings,
+} from '@shared/website'
 import { db } from './db'
 import { eq, ilike, and, gte, lte, or, inArray, asc, count } from 'drizzle-orm'
 import { hashPassword } from './auth'
+
+// The database, or a transaction on it.
+type DbExecutor =
+  typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+// A group's Kotahi connection. Its Kotahi group id is kept on the group
+// (`kotahiGroupId`) and, for now, mirrored into the kotahi settings row.
+export type GroupKotahiSettings = {
+  endpoint: string
+  apiKey: string | null
+  kotahiGroupId: string
+}
+
+const toKotahiFormData = ({
+  apiKey,
+  endpoint,
+  kotahiGroupId,
+}: GroupKotahiSettings): KotahiSettingsFormData => ({
+  endpoint,
+  apiKey,
+  groupId: kotahiGroupId,
+})
 
 export class DatabaseStorage {
   // User operations
@@ -93,8 +125,13 @@ export class DatabaseStorage {
   }
 
   // Hero settings operations
-  async getAllHeroSettings(): Promise<HeroSectionSettings[]> {
-    return db.select().from(heroSectionSettings)
+  async getAllHeroSettingsForGroup(
+    groupId: string,
+  ): Promise<HeroSectionSettings[]> {
+    return db
+      .select()
+      .from(heroSectionSettings)
+      .where(eq(heroSectionSettings.groupId, groupId))
   }
 
   async getHeroSettings(id: string): Promise<HeroSectionSettings | undefined> {
@@ -107,12 +144,18 @@ export class DatabaseStorage {
   }
 
   async getHeroSettingsByName(
+    groupId: string,
     name: string,
   ): Promise<HeroSectionSettings | undefined> {
     const [heroSettings] = await db
       .select()
       .from(heroSectionSettings)
-      .where(eq(heroSectionSettings.name, name))
+      .where(
+        and(
+          eq(heroSectionSettings.groupId, groupId),
+          eq(heroSectionSettings.name, name),
+        ),
+      )
 
     return heroSettings || undefined
   }
@@ -137,11 +180,12 @@ export class DatabaseStorage {
   }
 
   // Team member operations
-  async getAllTeamMembers(): Promise<TeamMember[]> {
+  async getAllTeamMembersForGroup(groupId: string): Promise<TeamMember[]> {
     console.log('Fetching team members sorted by sortOrder')
     const result = await db
       .select()
       .from(teamMembers)
+      .where(eq(teamMembers.groupId, groupId))
       .orderBy(teamMembers.sortOrder)
     console.log(
       'Team members ordering:',
@@ -159,8 +203,11 @@ export class DatabaseStorage {
   }
 
   async createTeamMember(member: InsertTeamMember): Promise<TeamMember> {
-    // Get the current max sort order and add 1 for the new member
-    const existingMembers = await db.select().from(teamMembers)
+    // Get the group's current max sort order and add 1 for the new member
+    const existingMembers = await db
+      .select()
+      .from(teamMembers)
+      .where(eq(teamMembers.groupId, member.groupId))
     const maxSortOrder =
       existingMembers.length > 0
         ? Math.max(
@@ -212,20 +259,26 @@ export class DatabaseStorage {
     return true // Postgres doesn't easily return affected rows count
   }
 
-  async reorderTeamMembers(memberIds: string[]): Promise<TeamMember[]> {
-    console.log('Starting reorderTeamMembers with memberIds:', memberIds)
-
-    // Update sort order for each team member
+  async reorderTeamMembersForGroup(
+    groupId: string,
+    memberIds: string[],
+  ): Promise<TeamMember[]> {
+    // Update sort order for each team member in the group
     for (let i = 0; i < memberIds.length; i++) {
       console.log(`Setting sortOrder ${i} for member ID ${memberIds[i]}`)
       await db
         .update(teamMembers)
         .set({ sortOrder: i })
-        .where(eq(teamMembers.id, memberIds[i]))
+        .where(
+          and(
+            eq(teamMembers.groupId, groupId),
+            eq(teamMembers.id, memberIds[i]),
+          ),
+        )
     }
 
     // Verify the sort order was updated correctly
-    const updatedMembers = await this.getAllTeamMembers()
+    const updatedMembers = await this.getAllTeamMembersForGroup(groupId)
     console.log(
       'Updated member order:',
       updatedMembers.map(m => ({
@@ -240,8 +293,11 @@ export class DatabaseStorage {
   }
 
   // Publication operations
-  async getAllPublications(): Promise<Publication[]> {
-    return await db.select().from(publications)
+  async getAllPublicationsForGroup(groupId: string): Promise<Publication[]> {
+    return await db
+      .select()
+      .from(publications)
+      .where(eq(publications.groupId, groupId))
   }
 
   async getPublication(id: string): Promise<Publication | undefined> {
@@ -252,13 +308,19 @@ export class DatabaseStorage {
     return publication || undefined
   }
 
-  async getPublicationByShortId(
+  async getPublicationByShortIdForGroup(
+    groupId: string,
     shortId: number,
   ): Promise<Publication | undefined> {
     const [publication] = await db
       .select()
       .from(publications)
-      .where(eq(publications.kotahiShortId, shortId))
+      .where(
+        and(
+          eq(publications.groupId, groupId),
+          eq(publications.kotahiShortId, shortId),
+        ),
+      )
     return publication || undefined
   }
 
@@ -296,17 +358,23 @@ export class DatabaseStorage {
     return true // Postgres doesn't easily return affected rows count
   }
 
-  async getPublicationsTotalCount(): Promise<number> {
-    const [totalCount] = await db.select({ count: count() }).from(publications) // TODO: handle versioning
+  async getPublicationsTotalCountForGroup(groupId: string): Promise<number> {
+    const [totalCount] = await db
+      .select({ count: count() })
+      .from(publications)
+      .where(eq(publications.groupId, groupId)) // TODO: handle versioning
 
     return totalCount.count
   }
 
   async getFilteredPublications(
+    groupId: string,
     yearRanges?: string,
     searchQuery?: string,
   ): Promise<Array<Publication>> {
-    const conditions = []
+    const conditions: Parameters<typeof and> = [
+      eq(publications.groupId, groupId),
+    ]
 
     if (yearRanges) {
       const yearClauses = yearRanges.split(',').map(r => {
@@ -490,10 +558,11 @@ export class DatabaseStorage {
   }
 
   // What We Do section operations
-  async getAllWhatWeDoSections(): Promise<WhatWeDoSection[]> {
+  async getAllWhatWeDoSections(groupId: string): Promise<WhatWeDoSection[]> {
     return await db
       .select()
       .from(whatWeDoSections)
+      .where(eq(whatWeDoSections.groupId, groupId))
       .orderBy(whatWeDoSections.sortOrder)
   }
 
@@ -506,12 +575,18 @@ export class DatabaseStorage {
   }
 
   async getWhatWeDoSectionBySlug(
+    groupId: string,
     slug: string,
   ): Promise<WhatWeDoSection | undefined> {
     const [section] = await db
       .select()
       .from(whatWeDoSections)
-      .where(eq(whatWeDoSections.slug, slug))
+      .where(
+        and(
+          eq(whatWeDoSections.groupId, groupId),
+          eq(whatWeDoSections.slug, slug),
+        ),
+      )
     return section || undefined
   }
 
@@ -646,15 +721,18 @@ export class DatabaseStorage {
   }
 
   // Settings operations
-  async getAllSettings(): Promise<Settings[]> {
-    return db.select().from(settings)
+  async getAllSettings(groupId: string): Promise<Settings[]> {
+    return db.select().from(settings).where(eq(settings.groupId, groupId))
   }
 
-  async getSettings(purpose: string): Promise<Settings | undefined> {
+  async getSettings(
+    groupId: string,
+    purpose: string,
+  ): Promise<Settings | undefined> {
     const [setting] = await db
       .select()
       .from(settings)
-      .where(eq(settings.purpose, purpose))
+      .where(and(eq(settings.groupId, groupId), eq(settings.purpose, purpose)))
 
     return setting || undefined
   }
@@ -681,9 +759,137 @@ export class DatabaseStorage {
     return updatedSettings
   }
 
-  // Seed the records the app needs to run: an admin user, settings rows and
-  // hero section copy. Content is left for admins to add.
-  async seedDefaults(): Promise<void> {
+  async getAllGroups(): Promise<Group[]> {
+    return db.select().from(groups).orderBy(asc(groups.name))
+  }
+
+  // Active groups by name, each with its website settings (description and
+  // look), for listing them in their own style.
+  async getActiveGroups(): Promise<
+    Array<Group & { website: WebsiteSettings }>
+  > {
+    const rows = await db
+      .select({ group: groups, formData: settings.formData })
+      .from(groups)
+      .leftJoin(
+        settings,
+        and(eq(settings.groupId, groups.id), eq(settings.purpose, 'general')),
+      )
+      .where(eq(groups.isActive, true))
+      .orderBy(asc(groups.name))
+
+    return rows.map(({ formData, group }) => ({
+      ...group,
+      website: withWebsiteDefaults(formData),
+    }))
+  }
+
+  async getGroupById(id: string): Promise<Group | undefined> {
+    const [group] = await db.select().from(groups).where(eq(groups.id, id))
+
+    return group || undefined
+  }
+
+  async getGroupByName(name: string): Promise<Group | undefined> {
+    const [group] = await db.select().from(groups).where(eq(groups.name, name))
+
+    return group || undefined
+  }
+
+  async getGroupBySlug(slug: string): Promise<Group | undefined> {
+    const [group] = await db.select().from(groups).where(eq(groups.slug, slug))
+
+    return group || undefined
+  }
+
+  // Creates the group with its default settings and hero sections, all or
+  // nothing.
+  async createGroup(
+    data: Omit<InsertGroup, 'kotahiGroupId'>,
+    kotahi: GroupKotahiSettings,
+  ): Promise<Group> {
+    return db.transaction(async tx => {
+      const [group] = await tx
+        .insert(groups)
+        .values({ ...data, kotahiGroupId: kotahi.kotahiGroupId })
+        .returning()
+
+      await this.seedDefaultsForGroup(group, toKotahiFormData(kotahi), tx)
+
+      return group
+    })
+  }
+
+  // Only a group's active state and Kotahi connection can change.
+  // The group's website settings, with defaults for anything not saved.
+  async getWebsiteSettings(groupId: string): Promise<WebsiteSettings> {
+    const row = await this.getSettings(groupId, 'general')
+
+    return withWebsiteDefaults(row?.formData)
+  }
+
+  // A group's slug is fixed once created; everything else here can change,
+  // all or nothing.
+  async updateGroup(
+    id: string,
+    data: {
+      name?: string
+      isActive?: boolean
+      kotahi?: GroupKotahiSettings
+      website?: WebsiteSettings
+    },
+  ): Promise<Group | undefined> {
+    const { isActive, kotahi, name, website } = data
+
+    return db.transaction(async tx => {
+      const changes = {
+        ...(name === undefined ? {} : { name }),
+        ...(isActive === undefined ? {} : { isActive }),
+        ...(kotahi ? { kotahiGroupId: kotahi.kotahiGroupId } : {}),
+      }
+
+      // Drizzle rejects an update with nothing to set.
+      const [updatedGroup] = Object.keys(changes).length
+        ? await tx
+            .update(groups)
+            .set(changes)
+            .where(eq(groups.id, id))
+            .returning()
+        : await tx.select().from(groups).where(eq(groups.id, id))
+
+      if (!updatedGroup) return undefined
+
+      if (kotahi) {
+        await this.saveSettings(tx, id, 'kotahi', toKotahiFormData(kotahi))
+      }
+
+      if (website) {
+        await this.saveSettings(tx, id, 'general', website)
+      }
+
+      return updatedGroup
+    })
+  }
+
+  // Replaces a group's settings row for the purpose, creating it if missing.
+  private async saveSettings(
+    executor: DbExecutor,
+    groupId: string,
+    purpose: 'general' | 'kotahi',
+    formData: SettingsFormData,
+  ): Promise<void> {
+    const [updated] = await executor
+      .update(settings)
+      .set({ formData })
+      .where(and(eq(settings.groupId, groupId), eq(settings.purpose, purpose)))
+      .returning({ id: settings.id })
+
+    if (!updated) {
+      await executor.insert(settings).values({ groupId, purpose, formData })
+    }
+  }
+
+  async seedAdmin(): Promise<void> {
     if (!(await this.getAllUsers()).length) {
       console.log('Seeding admin user...')
       const rawPassword = process.env.ADMIN_PASSWORD || 'ADM!N_PASSW0RD'
@@ -692,50 +898,27 @@ export class DatabaseStorage {
         password: await hashPassword(rawPassword),
       })
     }
+  }
 
-    // Settings (guarded per purpose)
-    const existingPurposes = new Set(
-      (await this.getAllSettings()).map(setting => setting.purpose),
-    )
+  // Seed the records a new group needs: settings rows and hero section copy.
+  // Content is left for admins to add.
+  async seedDefaultsForGroup(
+    group: Group,
+    kotahiFormData: KotahiSettingsFormData,
+    executor: DbExecutor = db,
+  ): Promise<void> {
+    console.log(`Seeding settings for group ${group.name}...`)
+    await executor.insert(settings).values({
+      purpose: 'general',
+      formData: defaultWebsiteSettings,
+      groupId: group.id,
+    })
 
-    if (!existingPurposes.has('general')) {
-      console.log('Seeding general settings...')
-      await db.insert(settings).values({
-        purpose: 'general',
-        formData: {
-          website: {
-            siteName: 'Kotahi CMS',
-            siteDescription: '',
-            contactEmail: '',
-            allowRegistration: false,
-            maintenanceMode: false,
-            theme: 'default',
-          },
-          api: {
-            apiRateLimit: '100',
-            enablePublicAPI: true,
-            requireAPIKey: false,
-          },
-          security: {
-            adminLoginAttempts: '5',
-            sessionTimeout: '60',
-            enableTwoFactor: false,
-          },
-        },
-      })
-    }
-
-    if (!existingPurposes.has('kotahi')) {
-      console.log('Seeding kotahi settings...')
-      await db.insert(settings).values({
-        purpose: 'kotahi',
-        formData: {
-          endpoint: '',
-          groupId: null,
-          apiKey: null,
-        },
-      })
-    }
+    await executor.insert(settings).values({
+      purpose: 'kotahi',
+      formData: kotahiFormData,
+      groupId: group.id,
+    })
 
     // Hero section defaults (guarded per name, so newly-added entries are
     // seeded even when some already exist).
@@ -744,45 +927,41 @@ export class DatabaseStorage {
         name: 'contact',
         title: 'Contact Us',
         description: 'Get in touch with us.',
+        groupId: group.id,
       },
       {
         name: 'home',
         title: 'Welcome',
         description: 'Recently published work and reviews.',
+        groupId: group.id,
       },
       {
         name: 'publications',
         title: 'Publications',
         description: 'Browse our published work and its reviews.',
+        groupId: group.id,
       },
       {
         name: 'search',
         title: 'Search',
         description: 'Search our publications and reviews.',
+        groupId: group.id,
       },
       {
         name: 'team',
         title: 'Our Team',
         description: 'Meet the people behind our work.',
+        groupId: group.id,
       },
       {
         name: 'whatWeDo',
         title: 'What We Do',
         description: 'An overview of our work.',
+        groupId: group.id,
       },
     ]
 
-    const existingHeroNames = new Set(
-      (await this.getAllHeroSettings()).map(hero => hero.name),
-    )
-    const missingHero = heroDefaults.filter(
-      hero => !existingHeroNames.has(hero.name),
-    )
-
-    if (missingHero.length > 0) {
-      console.log(`Seeding ${missingHero.length} hero section(s)...`)
-      await db.insert(heroSectionSettings).values(missingHero)
-    }
+    await executor.insert(heroSectionSettings).values(heroDefaults)
   }
 }
 

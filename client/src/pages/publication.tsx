@@ -2,6 +2,7 @@ import { useParams } from 'wouter'
 import { useQuery } from '@tanstack/react-query'
 import { KotahiReviewField } from '@shared/schema'
 import { useTRPC, type RouterOutputs } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import NotFound from './not-found'
@@ -65,9 +66,10 @@ const PublicationPage = () => {
   console.log('typeof shortId', typeof shortId)
 
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
 
   const { data, isLoading } = useQuery(
-    trpc.publicationAndReviews.queryOptions({ shortId }),
+    trpc.publicationAndReviews.queryOptions({ groupId, shortId }),
   )
 
   if (isLoading) {

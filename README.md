@@ -2,18 +2,25 @@
 
 A content management system for publishing work from
 [Kotahi](https://github.com/eLifePathways/Kotahi). It pulls published
-manuscripts and their reviews from a Kotahi instance and presents them on a
-public website, alongside pages the team edits in the CMS itself.
+manuscripts and their reviews from Kotahi and presents them on a public
+website, alongside pages the team edits in the CMS itself. One CMS can host
+several groups, each with a site of its own.
 
 ## Features
 
+- **Groups**: each group is a site at `/<slug>`, with its own content,
+  settings and look, publishing from its own Kotahi group.
 - **Public site**: home, about us, publications (with search) and each
   publication with its published reviews and decision, team, what we do and
   contact pages.
 - **Kotahi sync**: imports the latest published version of every manuscript in
-  a Kotahi group, including its images, maths and publishable review fields.
-- **Admin panel**: edit page headers, team members, "what we do" sections and
-  publications; manage admin users; configure the Kotahi connection.
+  a group's Kotahi group, including its images, maths and publishable review
+  fields.
+- **Admin panel**: create groups; per group, edit page headers, team members,
+  "what we do" sections and publications, and its settings: name,
+  description, contact details, favicon, logo, hero image, colours, fonts
+  (any Google Font) and Kotahi connection, with warnings for colours that fail
+  WCAG AA. Manage admin users.
 - **Issue reporting**: a bug button on every page captures a screenshot and the
   browser console; admins triage reports and comment on them.
 - **Analytics**: basic page-view and session tracking. Only full page loads
@@ -44,8 +51,9 @@ Every setting has a development default; put overrides in a `.env` file (see
 [DEVELOPMENT.md](DEVELOPMENT.md#settings)).
 
 Then sign in at `/login` as `admin` (password `admin`, or `ADMIN_PASSWORD`),
-set up the Kotahi connection under Admin → GraphQL API, and sync publications
-under Admin → Publications.
+create a group under Admin → Manage Groups (connecting it to a Kotahi group),
+and sync its publications under the group's Publications page. Its site is at
+`/<slug>`.
 
 To run it without Docker, see [DEVELOPMENT.md](DEVELOPMENT.md#without-docker).
 
@@ -82,11 +90,13 @@ To run it without Docker, see [DEVELOPMENT.md](DEVELOPMENT.md#without-docker).
 │   ├── file-storage.ts     # Files in S3 (MinIO in development)
 │   ├── storage.ts          # Database access and seeding
 │   ├── kotahi-sync.ts      # Pulls published manuscripts and reviews from Kotahi
+│   ├── google-fonts.ts     # The Google Fonts catalogue and font checks
 │   └── …                   # Auth, analytics, uploads, migrations, Vite set-up
 ├── shared/
 │   ├── schema.ts           # Drizzle tables, Zod schemas and types
 │   ├── queries.ts          # GraphQL queries sent to Kotahi
-│   └── utils.ts
+│   ├── website.ts          # A group's website settings: shape, defaults, fonts
+│   └── utils.ts            # Includes slug rules and reserved slugs
 ├── migrations/             # Drizzle Kit SQL migrations
 ```
 

@@ -1,83 +1,140 @@
-import { useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import * as z from 'zod'
+import { useQuery } from '@tanstack/react-query'
+import { Clock, Mail, MapPin, Phone } from 'lucide-react'
 import HeroSection from '@/components/sections/hero-section'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { useToast } from '@/hooks/use-toast'
-import { Mail, MapPin } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useTRPC } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 
-// Define form validation schema
-const formSchema = z.object({
-  name: z.string().min(2, { message: 'Name must be at least 2 characters' }),
-  email: z.string().email({ message: 'Please enter a valid email address' }),
-  subject: z.string().min(1, { message: 'Please select a subject' }),
-  message: z
-    .string()
-    .min(10, { message: 'Message must be at least 10 characters' })
-    .max(500, { message: 'Message cannot exceed 500 characters' }),
-})
+const ContactItem = ({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode
+  label: string
+  children: React.ReactNode
+}) => (
+  <div className="flex items-start">
+    <span className="mt-0.5 mr-3 shrink-0 text-primary">{icon}</span>
+    <div>
+      <h3 className="font-medium">{label}</h3>
+      <div className="text-sm text-muted-foreground whitespace-pre-line">
+        {children}
+      </div>
+    </div>
+  </div>
+)
 
-type FormValues = z.infer<typeof formSchema>
+const EmailLink = ({ email }: { email: string }) => (
+  <a className="text-link hover:underline" href={`mailto:${email}`}>
+    {email}
+  </a>
+)
 
 export default function Contact() {
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const { toast } = useToast()
+  const trpc = useTRPC()
+  const { id: groupId } = useGroup()
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: '',
-      email: '',
-      subject: '',
-      message: '',
-    },
-  })
+  const { data: heroSectionData, isLoading: heroSectionLoading } = useQuery(
+    trpc.heroSectionByName.queryOptions({ groupId, name: 'contact' }),
+  )
+
+  const { data: website } = useQuery(
+    trpc.groupWebsite.queryOptions({ groupId }),
+  )
+
+  const { description = '', title = '' } = heroSectionData ?? {}
+  const { address, email, mediaEmail, mediaIntro, officeHours, phone } =
+    website?.contact ?? {}
+
+  // Each part is shown only when the group has filled it in.
+  const hasContactInformation = Boolean(
+    email || phone || address || officeHours,
+  )
+  const hasMediaEnquiries = Boolean(mediaIntro || mediaEmail)
 
   return (
     <div className="container mx-auto px-4 py-8">
       <HeroSection
-        title="Contact Us"
-        description="Please get in touch by email with any comments or questions."
+        title={title}
+        description={description}
+        loading={heroSectionLoading}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-12">
-        {/* Contact Information */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-xl font-semibold text-primary">
-                Contact Information
-              </CardTitle>
-              <CardDescription>
-                Please get in touch by email with any comments or questions.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start">
-                <Mail className="h-5 w-5 text-primary mt-0.5 mr-3 shrink-0" />
-                <div>
-                  <h3 className="font-medium">Email</h3>
-                  <p className="text-sm text-muted-foreground">
+      {(hasContactInformation || hasMediaEnquiries) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-12">
+          {hasContactInformation && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl font-semibold text-primary">
+                  Contact Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {email && (
+                  <ContactItem
+                    icon={<Mail className="h-5 w-5" />}
+                    label="Email"
+                  >
+                    <EmailLink email={email} />
+                  </ContactItem>
+                )}
+                {phone && (
+                  <ContactItem
+                    icon={<Phone className="h-5 w-5" />}
+                    label="Phone"
+                  >
                     <a
                       className="text-link hover:underline"
-                      href="mailto:contact@example.com"
+                      href={`tel:${phone.replace(/[^\d+]/g, '')}`}
                     >
-                      contact@example.com
+                      {phone}
                     </a>
+                  </ContactItem>
+                )}
+                {address && (
+                  <ContactItem
+                    icon={<MapPin className="h-5 w-5" />}
+                    label="Address"
+                  >
+                    {address}
+                  </ContactItem>
+                )}
+                {officeHours && (
+                  <ContactItem
+                    icon={<Clock className="h-5 w-5" />}
+                    label="Office Hours"
+                  >
+                    {officeHours}
+                  </ContactItem>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {hasMediaEnquiries && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl font-semibold text-primary">
+                  Media Enquiries
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {mediaIntro && (
+                  <p className="text-sm text-muted-foreground whitespace-pre-line">
+                    {mediaIntro}
                   </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                )}
+                {mediaEmail && (
+                  <p className="text-sm font-medium mt-2">
+                    <EmailLink email={mediaEmail} />
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </div>
+      )}
     </div>
   )
 }

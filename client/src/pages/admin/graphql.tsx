@@ -29,6 +29,8 @@ import * as z from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useTRPC, useTRPCClient } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
+import { useFetchKotahiGroups } from '@/hooks/use-kotahi-groups'
 import {
   Form,
   FormControl,
@@ -198,19 +200,6 @@ query ManuscriptDetails($id: ID!) {
   },
 ]
 
-const groupQuery = {
-  query: `query groups {
-			groups {
-				id
-				name
-				configs {
-					active
-					flaxSiteUrl
-				}
-			}
-		}`,
-}
-
 interface GraphQLType {
   name: string
   kind: string
@@ -259,26 +248,14 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>
 
-// The groups in Kotahi's GraphQL response body, if it holds a list of them.
-const getGroupsFromResponse = (body: unknown): KotahiGroup[] | null => {
-  if (typeof body !== 'object' || body === null || !('data' in body)) {
-    return null
-  }
-
-  const { data } = body
-
-  if (typeof data !== 'object' || data === null || !('groups' in data)) {
-    return null
-  }
-
-  return Array.isArray(data.groups) ? data.groups : null
-}
-
 export default function GraphQLAdmin() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const trpc = useTRPC()
+  // The CMS group; `groupId` below is the Kotahi group sent to the endpoint.
+  const group = useGroup()
   const trpcClient = useTRPCClient()
+  const fetchGroups = useFetchKotahiGroups()
 
   // State for configuration
   //   const [endpoint, setEndpoint] = useState<string>('')
@@ -305,14 +282,20 @@ export default function GraphQLAdmin() {
   const [isVerifyingEndpoint, setIsVerifyingEndpoint] = useState<boolean>(false)
 
   const { data: settings, isLoading: isSettingsQueryLoading } = useQuery(
-    trpc.settingsByPurpose.queryOptions({ purpose: 'kotahi' }),
+    trpc.settingsByPurpose.queryOptions({
+      groupId: group.id,
+      purpose: 'kotahi',
+    }),
   )
 
   const updateKotahiSettings = useMutation(
     trpc.updateSettings.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({
-          queryKey: trpc.settingsByPurpose.queryKey({ purpose: 'kotahi' }),
+          queryKey: trpc.settingsByPurpose.queryKey({
+            groupId: group.id,
+            purpose: 'kotahi',
+          }),
         })
         toast({
           title: 'Success',
@@ -403,23 +386,6 @@ export default function GraphQLAdmin() {
       setQuery(selectedQuery.query)
       setVariables(selectedQuery.variables)
     }
-  }
-
-  // Lists Kotahi's groups through the server's GraphQL proxy, so the request
-  // comes from the server and never carries the CMS admin token.
-  const fetchGroups = async (endpoint: string) => {
-    const { data, status } = await trpcClient.graphqlProxy.mutate({
-      endpoint,
-      query: groupQuery.query,
-    })
-
-    const groupsResult = getGroupsFromResponse(data)
-
-    if (status < 200 || status >= 300 || !groupsResult) {
-      throw new Error(`Kotahi returned no groups (HTTP ${status})`)
-    }
-
-    return groupsResult
   }
 
   const handleVerifyEndpoint = async () => {

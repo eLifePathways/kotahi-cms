@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { useTRPC, type RouterOutputs } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 import {
   Edit,
   Plus,
@@ -42,6 +43,7 @@ export default function TeamMembersAdmin() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
 
   // Form states
   const [formData, setFormData] = useState({
@@ -120,11 +122,11 @@ export default function TeamMembersAdmin() {
 
   // Fetch team members
   const { data: teamMembers, isLoading: teamMembersLoading } = useQuery(
-    trpc.teamMembers.queryOptions(),
+    trpc.teamMembers.queryOptions({ groupId }),
   )
 
   const { data: heroSectionData, isLoading: heroSectionLoading } = useQuery(
-    trpc.heroSectionByName.queryOptions({ name: 'team' }),
+    trpc.heroSectionByName.queryOptions({ groupId, name: 'team' }),
   )
 
   // The list, and any single member, cached under the teamMembers and
@@ -205,8 +207,8 @@ export default function TeamMembersAdmin() {
   )
 
   // Reorder team members mutation
-  const reorderTeamMembers = useMutation(
-    trpc.reorderTeamMembers.mutationOptions({
+  const reorderTeamMembersForGroup = useMutation(
+    trpc.reorderTeamMembersForGroup.mutationOptions({
       onSuccess: () => {
         toast({
           title: 'Success',
@@ -233,7 +235,7 @@ export default function TeamMembersAdmin() {
           description: 'Page header updated successfully!',
         })
         queryClient.invalidateQueries({
-          queryKey: trpc.heroSectionByName.queryKey({ name: 'team' }),
+          queryKey: trpc.heroSectionByName.queryKey({ groupId, name: 'team' }),
         })
         setEditingHeroSection(false)
       },
@@ -308,7 +310,7 @@ export default function TeamMembersAdmin() {
   const saveReordering = () => {
     const memberIds = orderedMembers.map(member => member.id)
     console.log('Sending memberIds to reorder:', memberIds)
-    reorderTeamMembers.mutate(memberIds)
+    reorderTeamMembersForGroup.mutate({ groupId, memberIds })
   }
 
   // Handle form submission for creating a new team member
@@ -328,7 +330,7 @@ export default function TeamMembersAdmin() {
       return
     }
 
-    createTeamMember.mutate({ data: formData })
+    createTeamMember.mutate({ data: { ...formData, groupId } })
   }
 
   const handleEditHeroDescription = (e: React.FormEvent) => {
@@ -413,15 +415,17 @@ export default function TeamMembersAdmin() {
                   }
                   setIsReorderMode(false)
                 }}
-                disabled={reorderTeamMembers.isPending}
+                disabled={reorderTeamMembersForGroup.isPending}
               >
                 Cancel
               </Button>
               <Button
                 onClick={saveReordering}
-                disabled={reorderTeamMembers.isPending}
+                disabled={reorderTeamMembersForGroup.isPending}
               >
-                {reorderTeamMembers.isPending ? 'Saving...' : 'Save Order'}
+                {reorderTeamMembersForGroup.isPending
+                  ? 'Saving...'
+                  : 'Save Order'}
               </Button>
             </>
           ) : (

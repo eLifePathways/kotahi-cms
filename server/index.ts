@@ -51,7 +51,7 @@ app.use((req, res, next) => {
   // automatically by start:prod / dev). See server/migrate.ts.
   try {
     await initDatabase()
-    await storage.seedDefaults()
+    await storage.seedAdmin()
   } catch (error) {
     console.error('Database initialisation failed:', error)
     process.exit(1)

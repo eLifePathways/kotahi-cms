@@ -89,11 +89,15 @@ through Vite.
 
 ### Connecting to Kotahi
 
-Sign in as `admin`, open Admin → GraphQL API, and enter the Kotahi GraphQL
-endpoint, pick the group and save. For a Kotahi running on your machine, use
-`http://host.docker.internal:3000/graphql` under Docker, or
-`http://localhost:3000/graphql` without it.
-Admin → Publications → Refresh Publications then runs the sync.
+Sign in as `admin`, open Admin → Manage Groups → Add Group, and enter the
+Kotahi GraphQL endpoint; Check lists its groups to choose from. For a Kotahi
+running on your machine, use `http://host.docker.internal:3000/graphql` under
+Docker, or `http://localhost:3000/graphql` without it. Leave the slug empty to
+use the Kotahi group's name. A group's Kotahi connection can be changed later
+under its Settings → API.
+
+The group's Publications → Refresh Publications then runs the sync, and its
+site is at `/<slug>`.
 
 Kotahi only sends review and decision fields that its forms allow to be
 published. If a review is missing, check "Include when sharing or publishing?"
@@ -152,7 +156,11 @@ Put database access in `server/storage.ts` rather than in the procedure.
 const trpc = useTRPC()
 const queryClient = useQueryClient()
 
-const { data: members = [] } = useQuery(trpc.teamMembers.queryOptions())
+const { id: groupId } = useGroup()
+
+const { data: members = [] } = useQuery(
+  trpc.teamMembers.queryOptions({ groupId }),
+)
 
 const deleteMember = useMutation(
   trpc.deleteTeamMember.mutationOptions({
@@ -164,6 +172,8 @@ const deleteMember = useMutation(
 deleteMember.mutate({ id })
 ```
 
+- Pages under a group's routes get the group with `useGroup()`
+  (`@/hooks/use-group`), and pass `groupId` to lists and lookups.
 - Don't pass type arguments to `useQuery`; the types come from the router.
   Use `RouterInputs['x']` and `RouterOutputs['x']` from `@/utils/trpc` when
   you need them elsewhere.
@@ -181,7 +191,13 @@ The only REST call left is the image upload, through `apiRequest` in
 
 Colours are CSS variables in `client/src/index.css`, used through Tailwind's
 semantic classes (`bg-primary`, `text-muted-foreground`). Don't use palette
-classes such as `bg-blue-600` in components.
+classes such as `bg-blue-600` in components: groups set their own primary and
+secondary colours and fonts, which only reach components through those
+variables (`client/src/lib/group-theme.ts`).
+
+Keep text at WCAG AA contrast (4.5:1). The default palette passes, and a
+group's settings page warns when its colours don't; check new combinations,
+such as muted text on a tinted background, the same way (`contrastRatio`).
 
 ## Code style
 

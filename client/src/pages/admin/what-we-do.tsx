@@ -61,6 +61,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useTRPC, type RouterOutputs } from '@/utils/trpc'
+import { useGroup } from '@/hooks/use-group'
 import HeroSection from '../../components/sections/hero-section'
 import { Pencil } from 'lucide-react'
 import { Label } from '../../components/ui/label'
@@ -522,11 +523,12 @@ export default function WhatWeDoAdmin() {
 
   const queryClient = useQueryClient()
   const trpc = useTRPC()
+  const { id: groupId } = useGroup()
   const { toast } = useToast()
 
   // Queries
   const { data: sections = [], isLoading: sectionsLoading } = useQuery(
-    trpc.whatWeDoSections.queryOptions(),
+    trpc.whatWeDoSections.queryOptions({ groupId }),
   )
 
   const { data: contentItems = [], isLoading: contentLoading } = useQuery(
@@ -537,7 +539,7 @@ export default function WhatWeDoAdmin() {
   )
 
   const { data: heroSectionData, isLoading: heroSectionLoading } = useQuery(
-    trpc.heroSectionByName.queryOptions({ name: 'whatWeDo' }),
+    trpc.heroSectionByName.queryOptions({ groupId, name: 'whatWeDo' }),
   )
 
   // The section list, and any single section by id or slug.
@@ -724,7 +726,10 @@ export default function WhatWeDoAdmin() {
           description: 'Page header updated successfully!',
         })
         queryClient.invalidateQueries({
-          queryKey: trpc.heroSectionByName.queryKey({ name: 'whatWeDo' }),
+          queryKey: trpc.heroSectionByName.queryKey({
+            groupId,
+            name: 'whatWeDo',
+          }),
         })
         setEditingHeroSection(false)
       },
@@ -775,7 +780,7 @@ export default function WhatWeDoAdmin() {
     }
 
     console.log('Submitting section data:', sectionData)
-    createSectionMutation.mutate({ data: sectionData })
+    createSectionMutation.mutate({ data: { ...sectionData, groupId } })
   }
 
   const handleUpdateSection = (data: any) => {

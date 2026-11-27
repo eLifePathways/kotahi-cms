@@ -143,12 +143,14 @@
     /* Links & icons — the brand green, as in Kotahi */
     --link: 138 25.3% 38.8%;
 
-    /* Neutrals — gray family of Kotahi's default grey (#6B7280) */
-    --secondary: 220 14.3% 95.9%;
+    /* Neutrals — gray family of Kotahi's default grey (#6B7280).
+       The surfaces (#F7F8F9) are light enough for the grey and the brand
+       green to pass WCAG AA as text on them (4.55:1 and 4.57:1). */
+    --secondary: 220 14.3% 97.2%;
     --secondary-foreground: 0 0% 6.7%;
-    --muted: 220 14.3% 95.9%;
+    --muted: 220 14.3% 97.2%;
     --muted-foreground: 220 8.9% 46.1%; /* Kotahi grey #6B7280, 4.83:1 on white */
-    --accent: 220 14.3% 95.9%;
+    --accent: 220 14.3% 97.2%;
     --accent-foreground: 0 0% 6.7%;
 
     /* Status / feedback palette.
@@ -181,7 +183,7 @@
     --sidebar-foreground: 216.9 19.1% 26.7%;
     --sidebar-primary: 138 25.3% 38.8%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14.3% 95.9%;
+    --sidebar-accent: 220 14.3% 97.2%;
     --sidebar-accent-foreground: 0 0% 6.7%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 138 25.3% 38.8%;

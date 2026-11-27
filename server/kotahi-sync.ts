@@ -90,13 +90,55 @@ const fetchPublishedManuscripts = async ({
   const { data, errors } = await response.json()
 
   if (errors?.length) {
-    throw new Error(errors.map((e: { message: string }) => e.message).join('; '))
+    throw new Error(
+      errors.map((e: { message: string }) => e.message).join('; '),
+    )
   }
 
   return data?.manuscriptsPublishedSinceDate ?? []
 }
 
+const GROUPS_QUERY = 'query groups { groups { id name } }'
+
+type KotahiGroupSummary = { id: string; name: string | null }
+
+export const fetchKotahiGroup = async ({
+  apiKey,
+  endpoint,
+  kotahiGroupId,
+}: {
+  endpoint: string
+  apiKey: string | null
+  kotahiGroupId: string
+}): Promise<KotahiGroupSummary | undefined> => {
+  const response = await fetchFromKotahi(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify({ query: GROUPS_QUERY }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Kotahi responded with ${response.status}`)
+  }
+
+  const { data, errors } = await response.json()
+
+  if (errors?.length) {
+    throw new Error(
+      errors.map((e: { message: string }) => e.message).join('; '),
+    )
+  }
+
+  const groups: KotahiGroupSummary[] = data?.groups ?? []
+
+  return groups.find(group => group.id === kotahiGroupId)
+}
+
 const toPublicationPayload = async (
+  groupId: string,
   manuscript: KotahiPublishedManuscript,
 ): Promise<InsertPublication> => {
   const submission = parseJson<KotahiSubmission>(manuscript.submission, {})
@@ -111,6 +153,7 @@ const toPublicationPayload = async (
   )
 
   return {
+    groupId,
     title: submission.$title || '',
     kotahiManuscriptId: manuscript.id,
     kotahiShortId: manuscript.shortId,
@@ -172,10 +215,11 @@ const syncReviews = async (
 }
 
 export const syncFromKotahi = async (
+  groupId: string,
   settings: KotahiSettingsFormData,
 ): Promise<SyncResult> => {
   const manuscripts = await fetchPublishedManuscripts(settings)
-  const existing = await storage.getAllPublications()
+  const existing = await storage.getAllPublicationsForGroup(groupId)
 
   // Kotahi returns the latest published version of each manuscript, whose id
   // changes between versions; shortId does not.
@@ -186,7 +230,7 @@ export const syncFromKotahi = async (
   // Sequential on purpose: each manuscript may download several images.
   for (const manuscript of manuscripts) {
     try {
-      const payload = await toPublicationPayload(manuscript)
+      const payload = await toPublicationPayload(groupId, manuscript)
       const match = byShortId.get(manuscript.shortId)
 
       const publication: Publication | undefined = match
